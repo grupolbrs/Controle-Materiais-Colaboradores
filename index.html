@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle Patrimonial LB - Controle de Materiais</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js for Dashboard -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SheetJS for Excel Import/Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Print Styles - Otimizado para Expandir na Folha A4 */
+        @media print {
+            /* Define a margem física do papel */
+            @page { margin: 10mm; size: A4 portrait; }
+            
+            /* FORÇA O AUMENTO ESCALONADO: O zoom estica tudo perfeitamente (ótimo para Chrome/Edge) */
+            html { zoom: 1.25; font-size: 12pt !important; } 
+            
+            body, html { background: white !important; height: auto !important; overflow: visible !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; width: 100% !important; }
+            main { height: auto !important; overflow: visible !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .print-avoid-break { page-break-inside: avoid; }
+            
+            #modal-ficha, #print-view { 
+                position: static !important; 
+                display: block !important; 
+                background: white !important; 
+                z-index: 9999; 
+                padding: 0 !important; 
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            
+            /* QUEBRA A TRAVA DE LARGURA: Garante que a tabela ocupe 100% de ponta a ponta */
+            #modal-ficha > div, #print-view > div { 
+                box-shadow: none !important; 
+                max-width: 100% !important; 
+                width: 100% !important;
+                margin: 0 !important; 
+                border-radius: 0 !important; 
+                height: auto !important; 
+                display: block !important; 
+                padding: 0 !important;
+                border: none !important;
+            }
+
+            table { width: 100% !important; }
+        }
+        
+        /* Oculta seções inativas */
+        .view-section { display: none; }
+        .view-section.active { display: block; }
+        .modal { display: none; }
+        .modal.active { display: flex; }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 h-screen overflow-hidden flex">
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="fixed inset-0 bg-slate-50 flex items-center justify-center z-50">
+        <p class="text-lg text-slate-500 font-medium"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Inicializando Sistema...</p>
+    </div>
+
+    <!-- Sidebar (Desktop) -->
+    <aside class="w-64 bg-slate-900 text-slate-200 flex flex-col shadow-xl z-10 hidden md:flex no-print shrink-0">
+        <div class="p-6 bg-slate-950">
+            <h1 class="text-xl font-bold text-white tracking-wider">Controle Patrimonial <span class="text-blue-500">LB</span></h1>
+            <p class="text-xs text-slate-400 mt-1">Controle de Materiais</p>
+        </div>
+        <nav class="flex-1 px-4 py-6 space-y-2" id="sidebar-nav"></nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <!-- Mobile Header -->
+        <header class="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md no-print shrink-0">
+            <h1 class="text-lg font-bold">Controle Patrimonial <span class="text-blue-500">LB</span></h1>
+            <select id="mobile-nav" class="bg-slate-800 border-none rounded text-sm p-2 text-white"></select>
+        </header>
+
+        <!-- Dynamic Views Container -->
+        <div class="flex-1 overflow-y-auto p-4 md:p-8 relative no-print" id="main-content">
+            
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="view-section active space-y-6">
+                <h2 class="text-2xl font-bold text-slate-800">Dashboard</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="dashboard-stats"></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-96">
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
+                        <h3 class="font-semibold text-slate-700 mb-4">Distribuição de Materiais</h3>
+                        <div class="flex-1 relative"><canvas id="barChart"></canvas></div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
+                        <h3 class="font-semibold text-slate-700 mb-4">Status de Ativos</h3>
+                        <div class="flex-1 relative"><canvas id="pieChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Employees View -->
+            <div id="view-employees" class="view-section space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Colaboradores</h2>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <div class="relative flex-1 md:w-64">
+                            <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+                            <input type="text" id="search-employees" placeholder="Buscar colaborador..." class="w-full pl-10 pr-4 py-2 border rounded-lg" oninput="renderEmployees()">
+                        </div>
+                        <button onclick="openEmployeeModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 whitespace-nowrap">
+                            <i class="fa-solid fa-plus"></i> Novo
+                        </button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 text-sm border-b">
+                                <th class="p-4 font-medium">Nome</th>
+                                <th class="p-4 font-medium">Filial</th>
+                                <th class="p-4 font-medium">Setor</th>
+                                <th class="p-4 font-medium">Cargo</th>
+                                <th class="p-4 font-medium text-center">Status</th>
+                                <th class="p-4 font-medium text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="employees-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Materials View -->
+            <div id="view-materials" class="view-section space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Materiais e Estoque</h2>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <div class="relative flex-1 md:w-64">
+                            <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+                            <input type="text" id="search-materials" placeholder="Buscar material, pat. ou colab..." class="w-full pl-10 pr-4 py-2 border rounded-lg" oninput="renderMaterials()">
+                        </div>
+                        <button onclick="openMaterialModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 whitespace-nowrap">
+                            <i class="fa-solid fa-plus"></i> Novo
+                        </button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 text-sm border-b">
+                                <th class="p-4 font-medium">Cód / Pat.</th>
+                                <th class="p-4 font-medium">Descrição</th>
+                                <th class="p-4 font-medium">Categoria</th>
+                                <th class="p-4 font-medium text-center">Total</th>
+                            <th class="p-4 font-medium text-center">Disponível</th>
+                            <th class="p-4 font-medium text-center">Danificado</th>
+                            <th class="p-4 font-medium text-center">Em Uso Por</th>
+                            <th class="p-4 font-medium text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="materials-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Checkout View (Nova Cautela) -->
+            <div id="view-checkout" class="view-section space-y-6 max-w-5xl mx-auto">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-file-signature text-blue-600"></i> Nova Cautela
+                    </h2>
+                    <label class="flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-1.5 rounded-full text-sm font-bold cursor-pointer hover:bg-amber-200 transition-colors shadow-sm">
+                        <input type="checkbox" id="turbo-mode" class="rounded text-amber-600 focus:ring-amber-500" onchange="toggleTurboMode()">
+                        🚀 Modo Turbo (Migração)
+                    </label>
+                </div>
+                <div id="turbo-alert" class="hidden bg-amber-50 border-l-4 border-amber-500 p-3 rounded text-sm text-amber-800 shadow-sm">
+                    <strong>Modo Turbo Ativo:</strong> Ao confirmar, a tela de impressão não será exibida e o formulário será limpo imediatamente para digitação contínua de registros antigos.
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row">
+                    <div class="p-6 border-b md:border-b-0 md:border-r border-slate-200 flex-1 space-y-5 bg-slate-50">
+                        <h3 class="font-semibold text-lg text-slate-700 mb-4 border-b pb-2">1. Dados da Cautela</h3>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Colaborador Responsável *</label>
+                            <select id="co-employee" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 bg-white"></select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1 text-slate-600">Data da Retirada</label>
+                                <input type="datetime-local" id="co-date" class="w-full border p-2 rounded text-sm bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1 text-slate-600">Nº Termo Físico</label>
+                                <input type="text" id="co-term" placeholder="Opcional" class="w-full border p-2 rounded text-sm font-mono bg-white">
+                            </div>
+                        </div>
+                        <div class="pt-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm font-medium text-slate-600">Devolução Prevista</label>
+                                <label class="text-xs flex items-center gap-1 cursor-pointer text-slate-500">
+                                    <input type="checkbox" id="co-indeterminado" checked onchange="document.getElementById('co-return-date').disabled = this.checked"> Indeterminado
+                                </label>
+                            </div>
+                            <input type="date" id="co-return-date" disabled class="w-full border p-2 rounded disabled:bg-slate-200 disabled:text-slate-400 bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1 text-slate-600">Observação / Finalidade</label>
+                            <input type="text" id="co-purpose" class="w-full border p-2 rounded bg-white">
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 flex-[1.5] flex flex-col">
+                        <h3 class="font-semibold text-lg text-slate-700 mb-4 border-b pb-2">2. Adicionar Materiais</h3>
+                        <div class="flex gap-2 mb-6">
+                            <select id="co-material" class="flex-1 border p-2 rounded focus:ring-2 focus:ring-blue-500"></select>
+                            <input type="number" id="co-qty" min="1" value="1" class="w-20 border p-2 rounded text-center font-bold text-blue-700">
+                            <button type="button" onclick="addToCart()" class="bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-700 shadow-sm"><i class="fa-solid fa-plus"></i></button>
+                        </div>
+                        <div class="flex-1 border rounded-lg overflow-hidden flex flex-col shadow-inner">
+                            <div class="bg-slate-100 p-3 font-semibold text-sm border-b text-slate-600">Itens na Cautela (<span id="cart-count">0</span>)</div>
+                            <div class="flex-1 overflow-y-auto p-2 bg-slate-50 min-h-[200px]" id="cart-items">
+                                <p class="text-slate-400 text-center text-sm mt-8">Nenhum material adicionado.</p>
+                            </div>
+                        </div>
+                        <button onclick="confirmCheckout()" class="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-blue-700 flex items-center justify-center gap-2 shadow-md transition-colors">
+                            <i class="fa-solid fa-check"></i> <span id="checkout-btn-text">Confirmar e Gerar Termo</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Returns View (Baixas / Transferências) -->
+            <div id="view-return" class="view-section space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Baixa / Devoluções e Transferências</h2>
+                    <div class="relative w-full md:w-96">
+                        <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+                        <input type="text" id="search-returns" placeholder="Buscar por colab., material ou patrimônio..." class="w-full pl-10 pr-4 py-2 border rounded-lg shadow-sm" oninput="renderReturns()">
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left text-sm border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 border-b">
+                                <th class="p-4 font-medium">Colaborador</th>
+                                <th class="p-4 font-medium">Material / Pat.</th>
+                                <th class="p-4 font-medium text-center">Qtd Pendente</th>
+                                <th class="p-4 font-medium">Retirado Em</th>
+                                <th class="p-4 font-medium text-right">Ações Rápidas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="returns-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Assets View -->
+            <div id="view-assets" class="view-section space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Rastreamento de Patrimônios</h2>
+                    <div class="relative w-full md:w-64">
+                        <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+                        <input type="text" id="search-assets" placeholder="Buscar patrimônio..." class="w-full pl-10 pr-4 py-2 border rounded-lg" oninput="renderAssets()">
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 text-sm border-b">
+                                <th class="p-4 font-medium">Nº Patrimônio</th>
+                                <th class="p-4 font-medium">Descrição</th>
+                                <th class="p-4 font-medium text-center">Status Físico</th>
+                                <th class="p-4 font-medium">Localização Atual</th>
+                            </tr>
+                        </thead>
+                        <tbody id="assets-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Data Sync View (Excel) -->
+            <div id="view-data-sync" class="view-section space-y-6">
+                <h2 class="text-2xl font-bold text-slate-800">Importar e Exportar Dados (Excel)</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col gap-4">
+                        <div class="flex items-center gap-3 text-green-700 border-b pb-4">
+                            <i class="fa-solid fa-file-export text-2xl"></i><h3 class="font-bold text-lg">Exportar para Excel</h3>
+                        </div>
+                        <p class="text-sm text-slate-600">Baixe os dados atuais do sistema em formato .xlsx para análise ou backup.</p>
+                        <div class="grid grid-cols-2 gap-4 mt-auto pt-4">
+                            <button onclick="exportExcel('employees')" class="bg-slate-50 hover:bg-slate-100 text-slate-800 font-medium py-3 rounded-lg border flex items-center justify-center gap-2 transition-colors">
+                                <i class="fa-solid fa-users"></i> Colaboradores
+                            </button>
+                            <button onclick="exportExcel('materials')" class="bg-slate-50 hover:bg-slate-100 text-slate-800 font-medium py-3 rounded-lg border flex items-center justify-center gap-2 transition-colors">
+                                <i class="fa-solid fa-box"></i> Materiais
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col gap-4">
+                        <div class="flex items-center gap-3 text-blue-700 border-b pb-4">
+                            <i class="fa-solid fa-file-import text-2xl"></i><h3 class="font-bold text-lg">Importar do Excel</h3>
+                        </div>
+                        <p class="text-sm text-slate-600">Cadastre em lote usando planilhas. Baixe o modelo e faça o upload. <br><span class="text-xs text-blue-600 font-medium">*Dica: Na planilha de materiais, preencha a coluna "Colaborador_Responsavel" para já criar a cautela!</span></p>
+                        <div class="flex justify-between items-center bg-blue-50 p-3 rounded border border-blue-100">
+                            <span class="text-xs font-semibold text-blue-800">Planilhas Modelo:</span>
+                            <div class="flex gap-2">
+                                <button onclick="downloadTemplate('employees')" class="text-xs bg-white border border-blue-300 text-blue-700 px-3 py-1 rounded hover:bg-blue-100">Colaboradores</button>
+                                <button onclick="downloadTemplate('materials')" class="text-xs bg-white border border-blue-300 text-blue-700 px-3 py-1 rounded hover:bg-blue-100">Materiais</button>
+                            </div>
+                        </div>
+                        <div class="mt-auto space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium mb-1 text-slate-700">Tipo de Dados</label>
+                                <select id="import-type" class="w-full border p-2 rounded bg-slate-50"><option value="employees">Colaboradores</option><option value="materials">Materiais</option></select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1 text-slate-700">Arquivo (.xlsx)</label>
+                                <input type="file" id="import-file" accept=".xlsx, .xls, .csv" class="w-full border p-2 rounded text-sm bg-slate-50 cursor-pointer">
+                            </div>
+                            <button onclick="processExcelImport()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 mt-2 shadow-md">
+                                <i class="fa-solid fa-upload"></i> Processar Importação
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Print View -->
+        <div id="print-view" class="hidden fixed inset-0 bg-white z-50 p-8 overflow-y-auto print:block print:relative print:p-0 print:z-auto"></div>
+
+    </main>
+
+    <!-- Global Toast -->
+    <div id="toast" class="fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 transform translate-y-20 opacity-0 transition-all duration-300 z-[100] no-print">
+        <i id="toast-icon" class="fa-solid fa-check"></i>
+        <span id="toast-message"></span>
+    </div>
+
+    <!-- Modals -->
+    <!-- Employee Modal -->
+    <div id="modal-employee" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-50 no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 class="font-bold text-lg" id="emp-modal-title">Novo Colaborador</h3>
+                <button onclick="closeModal('modal-employee')" class="text-slate-500 hover:text-slate-800"><i class="fa-solid fa-times text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-4 overflow-y-auto flex-1">
+                <input type="hidden" id="emp-id">
+                <div><label class="block text-sm font-medium mb-1">Nome Completo *</label><input type="text" id="emp-name" class="w-full border p-2 rounded"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium mb-1">Filial</label><input type="text" id="emp-branch" class="w-full border p-2 rounded"></div>
+                    <div><label class="block text-sm font-medium mb-1">Setor</label><input type="text" id="emp-department" class="w-full border p-2 rounded"></div>
+                    <div><label class="block text-sm font-medium mb-1">Cargo</label><input type="text" id="emp-role" class="w-full border p-2 rounded"></div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Status</label>
+                        <select id="emp-status" class="w-full border p-2 rounded bg-slate-50"><option value="active">Ativo</option><option value="inactive">Inativo</option></select>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-slate-50 flex justify-end gap-2 shrink-0">
+                <button onclick="closeModal('modal-employee')" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded font-medium">Cancelar</button>
+                <button onclick="saveEmployee()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow-md">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Material Modal -->
+    <div id="modal-material" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-50 no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 class="font-bold text-lg" id="mat-modal-title">Novo Material</h3>
+                <button onclick="closeModal('modal-material')" class="text-slate-500 hover:text-slate-800"><i class="fa-solid fa-times text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-4 overflow-y-auto flex-1">
+                <input type="hidden" id="mat-id">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium mb-1">Descrição *</label><input type="text" id="mat-desc" class="w-full border p-2 rounded"></div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Categoria</label>
+                        <select id="mat-cat" class="w-full border p-2 rounded bg-white">
+                            <option value="">Selecione...</option><option>Ferramentas Manuais</option><option>Ferramentas Elétricas</option>
+                            <option>Equip. Informática</option><option>Máquinas</option><option>EPI</option><option>Insumos</option><option>Outros</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium mb-1">Tipo de Controle</label>
+                        <select id="mat-type" class="w-full border p-2 rounded bg-slate-50"><option value="quantity">Por Quantidade</option><option value="asset">Único (Patrimônio)</option></select>
+                    </div>
+                    <div><label class="block text-sm font-medium mb-1">Quantidade *</label><input type="number" min="1" id="mat-qty" class="w-full border p-2 rounded font-bold text-blue-700"></div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Unidade</label>
+                        <select id="mat-unit" class="w-full border p-2 rounded bg-white"><option value="un">Un (un)</option><option value="cx">Cx (cx)</option><option value="kit">Kit</option><option value="m">Mts (m)</option></select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div><label class="block text-sm font-medium mb-1">Cód. Interno</label><input type="text" id="mat-code" class="w-full border p-2 rounded"></div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 flex justify-between"><span>Valor Unit. (R$)</span><span class="text-xs text-slate-400 font-normal">(Opcional)</span></label>
+                        <input type="number" step="0.01" id="mat-value" class="w-full border p-2 rounded" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 flex justify-between"><span>Nº Patrimônio / Série</span><span class="text-xs text-slate-400 font-normal">(Opcional)</span></label>
+                        <input type="text" id="mat-asset" class="w-full border p-2 rounded" placeholder="Se não aplicável">
+                    </div>
+                </div>
+                
+                <div id="mat-assign-box" class="border border-blue-200 bg-blue-50 p-4 rounded-lg mt-4 relative">
+                    <label class="block text-sm font-bold text-blue-800 mb-1">Atribuir Imediatamente (Opcional)</label>
+                    <p class="text-xs text-blue-600 mb-3">Pesquise o colaborador para já criar a cautela.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="relative">
+                            <label class="block text-xs font-semibold text-blue-700 mb-1">Colaborador</label>
+                            <input type="text" id="mat-assign-search" class="w-full border border-blue-300 p-2 rounded pl-8" placeholder="Digite o nome..." oninput="handleAssignSearch()" onblur="setTimeout(()=>document.getElementById('mat-assign-dropdown').classList.add('hidden'), 200)">
+                            <i class="fa-solid fa-search absolute left-2.5 top-[1.8rem] text-blue-400"></i>
+                            <ul id="mat-assign-dropdown" class="hidden absolute z-20 w-full bg-white border rounded shadow-lg mt-1 max-h-40 overflow-y-auto"></ul>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-blue-700 mb-1">Data da Retirada</label>
+                            <input type="datetime-local" id="mat-assign-date" class="w-full border border-blue-300 p-2 rounded">
+                        </div>
+                    </div>
+                    <input type="hidden" id="mat-assign-emp-id">
+                    <div id="mat-assign-confirm" class="hidden mt-2 text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded inline-block"></div>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-slate-50 flex justify-end gap-2 shrink-0">
+                <button onclick="closeModal('modal-material')" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded font-medium">Cancelar</button>
+                <button onclick="saveMaterial()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow-md">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Return Modal -->
+    <div id="modal-return" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-[60] no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div class="p-4 border-b bg-green-50 text-green-800 flex justify-between items-center">
+                <h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-box-open"></i> Processar Devolução</h3>
+                <button onclick="closeModal('modal-return')" class="hover:text-green-900"><i class="fa-solid fa-times text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-5">
+                <div class="bg-slate-50 p-3 border rounded text-sm shadow-inner" id="ret-info"></div>
+                <input type="hidden" id="ret-checkout-id"><input type="hidden" id="ret-item-index"><input type="hidden" id="ret-mat-id">
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-slate-700">Quantidade</label>
+                        <input type="number" id="ret-qty" min="1" class="w-full border border-slate-300 p-2 rounded text-lg font-bold text-center text-green-700 focus:ring-2 focus:ring-green-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-slate-700">Data da Baixa</label>
+                        <input type="datetime-local" id="ret-date" class="w-full border border-slate-300 p-2 rounded outline-none focus:ring-2 focus:ring-green-500 transition">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2 text-slate-700">Condição / Estado Final</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="border p-3 rounded-lg flex items-center gap-2 cursor-pointer transition-all bg-white hover:bg-slate-50" id="lbl-ret-good">
+                            <input type="radio" name="ret_condition" value="good" checked class="hidden" onchange="updateReturnUI()">
+                            <div class="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center indicator shrink-0 transition-colors"></div>
+                            <span class="text-sm font-medium text-slate-700 leading-tight">Bom<br><span class="text-[10px] text-slate-400">Volta ao Estoque</span></span>
+                        </label>
+                        <label class="border p-3 rounded-lg flex items-center gap-2 cursor-pointer transition-all bg-white hover:bg-slate-50" id="lbl-ret-bad">
+                            <input type="radio" name="ret_condition" value="damaged" class="hidden" onchange="updateReturnUI()">
+                            <div class="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center indicator shrink-0 transition-colors"></div>
+                            <span class="text-sm font-medium text-slate-700 leading-tight">Danificado<br><span class="text-[10px] text-slate-400">Sai da Circulação</span></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-slate-50 flex justify-end gap-2">
+                <button onclick="closeModal('modal-return')" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded font-medium transition-colors">Cancelar</button>
+                <button onclick="processReturn()" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow-md transition-colors">Confirmar Baixa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer Modal -->
+    <div id="modal-transfer" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-50 no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div class="p-4 border-b bg-blue-50 text-blue-800 flex justify-between items-center">
+                <h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-right-left"></i> Transferir Material</h3>
+                <button onclick="closeModal('modal-transfer')" class="hover:text-blue-900"><i class="fa-solid fa-times text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="bg-slate-50 p-3 rounded border text-sm shadow-inner" id="trans-info"></div>
+                <input type="hidden" id="trans-checkout-id"><input type="hidden" id="trans-mat-id"><input type="hidden" id="trans-qty">
+                
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">Destino (Novo Colaborador Responsável):</label>
+                    <select id="trans-target-emp" class="w-full border p-2 rounded bg-white focus:ring-2 focus:ring-blue-500 shadow-sm"></select>
+                </div>
+                <div class="bg-amber-50 border-l-4 border-amber-500 p-3 rounded mt-2">
+                    <p class="text-xs text-amber-800 font-medium"><i class="fa-solid fa-triangle-exclamation"></i> Atenção: O material sairá da responsabilidade do colaborador atual e uma nova cautela será gerada para o destino.</p>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-slate-50 flex justify-end gap-2">
+                <button onclick="closeModal('modal-transfer')" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded font-medium transition-colors">Cancelar</button>
+                <button onclick="processTransfer()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow-md transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-check"></i> Transferir
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="modal-confirm" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-[110] no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div class="p-4 border-b bg-red-50 text-red-800 flex items-center gap-2">
+                <i class="fa-solid fa-triangle-exclamation"></i> <h3 class="font-bold">Confirmação</h3>
+            </div>
+            <div class="p-6">
+                <p id="confirm-message" class="text-slate-700 text-sm font-medium"></p>
+            </div>
+            <div class="p-4 border-t bg-slate-50 flex justify-end gap-2">
+                <button onclick="closeModal('modal-confirm')" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded font-medium transition-colors">Cancelar</button>
+                <button id="confirm-btn" class="bg-red-600 text-white px-6 py-2 rounded font-bold hover:bg-red-700 shadow-md transition-colors">Sim, Excluir</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ficha Modal -->
+    <div id="modal-ficha" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center p-4 z-50 print:bg-white print:p-0 print:block">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[90vh] print:h-auto print:shadow-none print:w-full print:mx-auto print:rounded-none">
+            <div class="p-4 border-b bg-slate-50 flex justify-between items-center shrink-0 print:hidden">
+                <h3 class="font-bold text-lg flex items-center gap-2"><i class="fa-solid fa-clipboard-user text-slate-500"></i> Ficha do Colaborador</h3>
+                <div class="flex gap-2">
+                    <button onclick="window.print()" class="bg-slate-800 text-white px-4 py-1.5 rounded flex items-center gap-2 text-sm hover:bg-slate-700 shadow-sm transition-colors"><i class="fa-solid fa-print"></i> Imprimir PDF</button>
+                    <button onclick="closeModal('modal-ficha')" class="text-slate-500 hover:text-slate-800 bg-slate-200 hover:bg-slate-300 w-8 h-8 rounded-full flex justify-center items-center transition-colors"><i class="fa-solid fa-times text-lg"></i></button>
+                </div>
+            </div>
+            <div class="p-8 overflow-y-auto flex-1 print:overflow-visible print:p-0" id="ficha-content"></div>
+        </div>
+    </div>
+
+    <!-- Firebase & Logic Script -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, addDoc, updateDoc, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.appState = {
+            user: null, activeView: 'dashboard', materials: [], employees: [], checkouts: [], cart: [], turboMode: false, charts: {}
+        };
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD8iQhT-NU3fR8z9PYVlDaqPoA9S0cr5HI", authDomain: "cautela-materiais.firebaseapp.com",
+            databaseURL: "https://cautela-materiais-default-rtdb.firebaseio.com", projectId: "cautela-materiais",
+            storageBucket: "cautela-materiais.firebasestorage.app", messagingSenderId: "962593531800",
+            appId: "1:962593531800:web:8548f758fab89f1fd22ded", measurementId: "G-75DT96BCT6"
+        };
+        
+        let app, auth, db;
+        try { app = initializeApp(firebaseConfig); auth = getAuth(app); db = getFirestore(app); } 
+        catch (e) { console.error("Firebase init:", e); }
+        
+        const navItems = [
+            { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-line' },
+            { id: 'employees', label: 'Colaboradores', icon: 'fa-users' },
+            { id: 'materials', label: 'Materiais / Estoque', icon: 'fa-box' },
+            { id: 'checkout', label: 'Nova Cautela', icon: 'fa-file-signature' },
+            { id: 'return', label: 'Baixas e Transferências', icon: 'fa-right-left' },
+            { id: 'assets', label: 'Patrimônios', icon: 'fa-file-lines' },
+            { id: 'data-sync', label: 'Importar / Exportar', icon: 'fa-file-excel' }
+        ];
+
+        async function init() {
+            renderNav();
+            try { await signInAnonymously(auth); } 
+            catch (err) { console.warn("Forçando acesso direto:", err); appState.user = { uid: 'usuario-direto-local' }; setupListeners(); return; }
+
+            onAuthStateChanged(auth, (user) => {
+                appState.user = user || { uid: 'usuario-direto-local' };
+                setupListeners();
+            });
+
+            // Default dates
+            try {
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                document.getElementById('co-date').value = now.toISOString().slice(0,16);
+            } catch(e){}
+        }
+
+        function setupListeners() {
+            if (!appState.user) return;
+            const dbPath = `artifacts/cautela-materiais/public/data`;
+            const handleDbError = () => { document.getElementById('loading-screen').style.display = 'none'; renderAll(); };
+
+            try {
+                onSnapshot(collection(db, `${dbPath}/materials`), (snap) => { appState.materials = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAll(); }, handleDbError);
+                onSnapshot(collection(db, `${dbPath}/employees`), (snap) => { appState.employees = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAll(); }, handleDbError);
+                onSnapshot(collection(db, `${dbPath}/checkouts`), (snap) => {
+                    appState.checkouts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    document.getElementById('loading-screen').style.display = 'none';
+                    renderAll();
+                }, handleDbError);
+            } catch (e) { handleDbError(); }
+        }
+
+        function renderAll() {
+            if(appState.activeView === 'dashboard') renderDashboard();
+            if(appState.activeView === 'employees') renderEmployees();
+            if(appState.activeView === 'materials') renderMaterials();
+            if(appState.activeView === 'checkout') renderCheckoutSetup();
+            if(appState.activeView === 'return') renderReturns();
+            if(appState.activeView === 'assets') renderAssets();
+        }
+
+        window.switchView = (viewId) => {
+            appState.activeView = viewId;
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.getElementById(`view-${viewId}`).classList.add('active');
+            document.getElementById('print-view').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            renderNav(); renderAll();
+        };
+
+        function renderNav() {
+            document.getElementById('sidebar-nav').innerHTML = navItems.map(item => `
+                <button onclick="switchView('${item.id}')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-medium ${appState.activeView === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}">
+                    <i class="fa-solid ${item.icon} w-5 text-center"></i> <span>${item.label}</span>
+                </button>
+            `).join('');
+            document.getElementById('mobile-nav').innerHTML = navItems.map(item => `<option value="${item.id}" ${appState.activeView === item.id ? 'selected' : ''}>${item.label}</option>`).join('');
+            document.getElementById('mobile-nav').onchange = (e) => switchView(e.target.value);
+        }
+
+        // --- DASHBOARD ---
+        function renderDashboard() {
+            let totalItemsAvail = 0, itemsInPossession = 0, totalDamaged = 0;
+            appState.materials.forEach(m => { totalItemsAvail += (m.stock || 0); totalDamaged += (m.damagedStock || 0); });
+            appState.checkouts.forEach(c => {
+                c.items.forEach(item => {
+                    // Ignora itens de materiais que já foram excluídos do sistema
+                    if (!appState.materials.some(m => m.id === item.materialId)) return;
+                    
+                    const active = item.qty - (item.returnedQty || 0) - (item.damagedQty || 0) - (item.transferredQty || 0);
+                    if (active > 0) itemsInPossession += active;
+                });
+            });
+
+            document.getElementById('dashboard-stats').innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><p class="text-sm text-slate-500 font-medium">Total Colaboradores</p><p class="text-3xl font-bold text-slate-800 mt-2">${appState.employees.length}</p></div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><p class="text-sm text-slate-500 font-medium">Materiais Cadastrados</p><p class="text-3xl font-bold text-blue-600 mt-2">${appState.materials.length}</p></div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><p class="text-sm text-slate-500 font-medium">Itens Disponíveis</p><p class="text-3xl font-bold text-green-600 mt-2">${totalItemsAvail}</p></div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><p class="text-sm text-slate-500 font-medium">Itens em Cautela</p><p class="text-3xl font-bold text-amber-500 mt-2">${itemsInPossession}</p></div>
+            `;
+
+            const labels = ['Em Estoque', 'Em Posse', 'Danificados'], data = [totalItemsAvail, itemsInPossession, totalDamaged], colors = ['#10b981', '#f59e0b', '#ef4444'];
+            if (appState.charts.bar) appState.charts.bar.destroy();
+            appState.charts.bar = new Chart(document.getElementById('barChart'), { type: 'bar', data: { labels, datasets: [{ label: 'Qtd', data, backgroundColor: colors, borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+            if (appState.charts.pie) appState.charts.pie.destroy();
+            appState.charts.pie = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors }] }, options: { responsive: true, maintainAspectRatio: false } });
+        }
+
+        // --- COLABORADORES ---
+        window.renderEmployees = () => {
+            const term = document.getElementById('search-employees').value.toLowerCase();
+            document.getElementById('employees-tbody').innerHTML = appState.employees.filter(e => e.name.toLowerCase().includes(term)).map(emp => `
+                <tr class="border-b hover:bg-slate-50">
+                    <td class="p-4 font-bold text-slate-800">${emp.name}</td><td class="p-4">${emp.branch || '-'}</td><td class="p-4">${emp.department || '-'}</td><td class="p-4">${emp.role || '-'}</td>
+                    <td class="p-4 text-center"><span class="px-2 py-1 rounded-full text-xs font-medium ${emp.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${emp.status === 'active' ? 'Ativo' : 'Inativo'}</span></td>
+                    <td class="p-4 text-right space-x-2">
+                        <button onclick="openFicha('${emp.id}')" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-sm font-bold transition-colors">Ficha</button>
+                        <button onclick="openFicha('${emp.id}', true)" class="text-slate-600 hover:bg-slate-100 px-2 py-1 rounded text-sm font-medium transition-colors"><i class="fa-solid fa-print"></i> PDF</button>
+                        <button onclick="openEmployeeModal('${emp.id}')" class="text-slate-500 hover:text-slate-800 text-sm p-1"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteEmployee('${emp.id}')" class="text-red-400 hover:text-red-700 text-sm p-1 ml-1" title="Excluir Colaborador"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('') || `<tr><td colSpan="6" class="p-8 text-center text-slate-500">Nenhum encontrado.</td></tr>`;
+        };
+
+        window.openEmployeeModal = (id = null) => {
+            const emp = id ? appState.employees.find(e => e.id === id) : { name:'', branch:'', department:'', role:'', status:'active' };
+            document.getElementById('emp-modal-title').innerText = id ? 'Editar Colaborador' : 'Novo Colaborador';
+            document.getElementById('emp-id').value = id || '';
+            ['name','branch','department','role','status'].forEach(k => document.getElementById(`emp-${k}`).value = emp[k]);
+            document.getElementById('modal-employee').classList.add('active');
+        };
+
+        window.saveEmployee = async () => {
+            const data = { name: document.getElementById('emp-name').value, branch: document.getElementById('emp-branch').value, department: document.getElementById('emp-department').value, role: document.getElementById('emp-role').value, status: document.getElementById('emp-status').value };
+            if(!data.name) return showToast('Preencha o nome', 'error');
+            const id = document.getElementById('emp-id').value;
+            try {
+                if(id) await updateDoc(doc(db, `artifacts/cautela-materiais/public/data/employees`, id), data);
+                else await addDoc(collection(db, `artifacts/cautela-materiais/public/data/employees`), data);
+                closeModal('modal-employee'); showToast('Salvo com sucesso!');
+            } catch(e) { console.error(e); showToast('Erro', 'error'); }
+        };
+
+        window.deleteEmployee = async (id) => {
+            customConfirm('Tem certeza que deseja EXCLUIR este colaborador permanentemente? O histórico não será perdido, mas o cadastro sumirá.', async () => {
+                try { 
+                    await deleteDoc(doc(db, `artifacts/cautela-materiais/public/data/employees`, id)); 
+                    showToast('Colaborador excluído!', 'success'); 
+                } 
+                catch(e) { 
+                    console.error("Erro ao excluir:", e);
+                    showToast('Erro ao excluir', 'error'); 
+                }
+            });
+        };
+
+        // --- FICHA PDF ---
+        window.openFicha = (empId, autoPrint = false) => {
+            const emp = appState.employees.find(e => e.id === empId);
+            const activeStock = [];
+            const returnedStock = [];
+            
+            appState.checkouts.filter(c => c.employeeId === empId).forEach(c => c.items.forEach((item, index) => {
+                // Ignora itens de materiais que já foram excluídos do sistema
+                if (!appState.materials.some(m => m.id === item.materialId)) return;
+
+                const active = item.qty - (item.returnedQty||0) - (item.damagedQty||0) - (item.transferredQty||0);
+                if (active > 0) activeStock.push({ ...item, checkoutId: c.id, checkoutDate: c.date, activeQty: active, itemIndex: index });
+                
+                const totalReturned = (item.returnedQty||0) + (item.damagedQty||0);
+                if (totalReturned > 0) returnedStock.push({ ...item, checkoutId: c.id, checkoutDate: c.date, returnedQtyTotal: totalReturned, returnDate: item.lastReturnDate });
+            }));
+
+            // Ordenar as listas por data (do mais recente para o mais antigo)
+            activeStock.sort((a, b) => new Date(b.checkoutDate) - new Date(a.checkoutDate));
+            returnedStock.sort((a, b) => new Date(b.returnDate || b.checkoutDate) - new Date(a.returnDate || a.checkoutDate));
+            
+            document.getElementById('ficha-content').innerHTML = `
+                <!-- LOGO IMPRESSÃO -->
+                <div class="hidden print:flex flex-col items-center justify-center mb-8 w-full mt-2">
+                    <div class="flex items-center justify-center gap-6 w-full">
+                        <span class="text-4xl font-light text-[#555555] tracking-[0.3em] uppercase">Grupo</span>
+                        <div class="h-14 w-1 bg-[#e6192b]"></div>
+                        <span class="text-5xl font-bold text-[#e6192b] tracking-tight whitespace-nowrap">Libraga Brandão</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-3 text-[10px] font-bold mt-3 tracking-wider uppercase">
+                        <span class="text-[#e6192b]">Rede Vivo</span> &bull; <span class="text-[#008a47]">Rancho Atacadista</span> &bull; 
+                        <span class="text-[#e30613]">Boa Vista</span> &bull; <span class="text-[#009b3a]">LB Energia</span> &bull; 
+                        <span class="text-[#555555]">CDRV</span> &bull; <span class="text-[#8a191d]">São Luiz</span>
+                    </div>
+                </div>
+
+                <div class="text-center border-b pb-4 mb-6">
+                    <h2 class="text-2xl font-bold uppercase tracking-wider text-slate-800">Ficha de Cautelas Individuais</h2>
+                    <p class="text-slate-500 mt-1">Inventário atual sob responsabilidade do colaborador</p>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 p-4 rounded-lg mb-8 text-sm grid grid-cols-2 md:grid-cols-4 gap-4 print:bg-transparent print:border-none print:p-0 print:mb-4">
+                    <div><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Nome Completo</p><p class="font-bold text-lg text-slate-800 uppercase">${emp.name}</p></div>
+                    <div><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Setor / Filial</p><p class="font-medium text-slate-700">${emp.department || '-'} / ${emp.branch || '-'}</p></div>
+                    <div><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Situação</p><p class="font-medium text-slate-700">${emp.status === 'active' ? 'Ativo' : 'Inativo'}</p></div>
+                </div>
+                
+                <h4 class="font-bold text-slate-700 mb-2 uppercase text-sm print:text-xs">Materiais em Uso (Carga Atual)</h4>
+                <table class="w-full text-sm text-left border border-slate-300 mb-6">
+                    <thead class="bg-slate-100 text-slate-600 border-b border-slate-300">
+                        <tr>
+                            <th class="p-3 font-bold uppercase text-[11px] tracking-wider">Descrição do Material</th>
+                            <th class="p-3 font-bold uppercase text-[11px] tracking-wider">Patrimônio / Cód</th>
+                            <th class="p-3 text-center font-bold uppercase text-[11px] tracking-wider">Valor (R$)</th>
+                            <th class="p-3 text-center font-bold uppercase text-[11px] tracking-wider">Qtd</th>
+                            <th class="p-3 text-center font-bold uppercase text-[11px] tracking-wider">Data da Retirada</th>
+                            <th class="p-3 text-center print:hidden">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${activeStock.map(item => `
+                            <tr class="border-b border-slate-200">
+                                <td class="p-3 font-medium text-slate-800">
+                                    <label class="flex items-center gap-2 cursor-pointer w-fit" title="Marcar para inventário">
+                                        <input type="checkbox" class="w-5 h-5 shrink-0 text-blue-600 rounded border-slate-400 cursor-pointer focus:ring-blue-500 print:w-5 print:h-5">
+                                        <span class="print:text-[14px] print:font-bold leading-tight">${item.description}</span>
+                                    </label>
+                                </td>
+                                <td class="p-3 font-mono text-slate-600 text-xs">${item.codeOrAsset || '-'}</td>
+                                <td class="p-3 text-center font-mono text-slate-600 text-xs">${item.value ? `R$ ${parseFloat(item.value).toFixed(2).replace('.',',')}` : '-'}</td>
+                                <td class="p-3 text-center font-bold text-blue-700 bg-blue-50/30 print:text-[14px]">${item.activeQty} ${item.unit || ''}</td>
+                                <td class="p-3 text-center font-bold text-slate-800 bg-slate-50 print:bg-transparent">${formatDate(item.checkoutDate)}</td>
+                                <td class="p-3 text-center print:hidden flex flex-col gap-1 items-center">
+                                    <button onclick="openTransfer('${emp.id}', '${item.checkoutId}', '${item.materialId}', ${item.activeQty})" class="bg-blue-100 text-blue-700 w-full px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-200 transition">Transferir</button>
+                                    <button onclick="openReturnModal('${item.checkoutId}', ${item.itemIndex}, ${item.activeQty}, '${item.materialId}')" class="bg-green-100 text-green-700 w-full px-3 py-1.5 rounded text-xs font-bold hover:bg-green-200 transition">Baixar</button>
+                                </td>
+                            </tr>
+                        `).join('') || `<tr><td colspan="6" class="p-6 text-center text-slate-500 italic">Nenhum material pendente no momento.</td></tr>`}
+                    </tbody>
+                </table>
+
+                ${returnedStock.length > 0 ? `
+                <h4 class="font-bold text-slate-700 mb-2 uppercase text-sm print:text-xs mt-4">Histórico de Baixas e Devoluções</h4>
+                <table class="w-full text-sm text-left border border-slate-300">
+                    <thead class="bg-slate-100 text-slate-600 border-b border-slate-300">
+                        <tr>
+                            <th class="p-3 font-bold uppercase text-[11px] tracking-wider">Descrição do Material</th>
+                            <th class="p-3 font-bold uppercase text-[11px] tracking-wider">Patrimônio / Cód</th>
+                            <th class="p-3 text-center font-bold uppercase text-[11px] tracking-wider">Qtd Devolvida</th>
+                            <th class="p-3 text-center font-bold uppercase text-[11px] tracking-wider">Data da Baixa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${returnedStock.map(item => `
+                            <tr class="border-b border-slate-200 bg-slate-50 print:bg-transparent">
+                                <td class="p-3 font-medium text-slate-600">${item.description}</td>
+                                <td class="p-3 font-mono text-slate-500 text-xs">${item.codeOrAsset || '-'}</td>
+                                <td class="p-3 text-center font-bold text-green-700">${item.returnedQtyTotal} ${item.unit || ''}</td>
+                                <td class="p-3 text-center font-bold text-slate-600">${formatDate(item.returnDate)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                ` : ''}
+
+                <div class="mt-16 pt-8 border-t border-dashed hidden print:block text-center text-sm text-slate-600 print-avoid-break">
+                    <p class="mb-12">Declaro estar ciente dos itens sob minha responsabilidade listados acima e comprometo-me a zelar pela sua conservação.</p>
+                    <div class="flex justify-center"><div class="w-72 border-t border-slate-800 pt-2 font-bold uppercase text-slate-800">${emp.name}</div></div>
+                </div>
+            `;
+            document.getElementById('modal-ficha').classList.add('active');
+            if(autoPrint) setTimeout(() => { window.print(); }, 400);
+        };
+
+        // --- MATERIAIS ---
+        window.renderMaterials = () => {
+            const term = document.getElementById('search-materials').value.toLowerCase();
+            
+            const processedMaterials = appState.materials.map(mat => {
+                let inUseBy = [];
+                let inUseByFullNames = [];
+                
+                appState.checkouts.forEach(c => {
+                    c.items.forEach(it => {
+                        if (it.materialId === mat.id) {
+                            const active = it.qty - (it.returnedQty||0) - (it.damagedQty||0) - (it.transferredQty||0);
+                            if (active > 0) {
+                                // Pega apenas o primeiro nome para não poluir a tabela
+                                const firstName = c.employeeName.split(' ')[0];
+                                inUseBy.push(mat.type === 'asset' ? firstName : `${firstName} (${active})`);
+                                // Guarda o nome completo minúsculo para garantir a busca
+                                inUseByFullNames.push(c.employeeName.toLowerCase());
+                            }
+                        }
+                    });
+                });
+                
+                return { ...mat, inUseByStr: inUseBy.join(', '), inUseByArr: inUseBy, searchNames: inUseByFullNames.join(' ') };
+            });
+
+            const filteredMaterials = processedMaterials.filter(m => 
+                m.description.toLowerCase().includes(term) || 
+                (m.assetNumber && m.assetNumber.toLowerCase().includes(term)) ||
+                (m.code && m.code.toLowerCase().includes(term)) ||
+                m.searchNames.includes(term)
+            );
+
+            document.getElementById('materials-tbody').innerHTML = filteredMaterials.map(mat => {
+                const usersStr = mat.inUseByStr !== '' ? mat.inUseByStr : '-';
+
+                return `
+                <tr class="border-b hover:bg-slate-50">
+                    <td class="p-4 font-mono text-sm text-slate-500">${mat.type === 'asset' ? (mat.assetNumber || mat.code || '-') : (mat.code || '-')}</td>
+                    <td class="p-4 font-medium text-slate-800">
+                        <label class="flex items-center gap-2 cursor-pointer w-fit" title="Marcar para conferência">
+                            <input type="checkbox" class="w-5 h-5 shrink-0 text-blue-600 rounded border-slate-400 cursor-pointer focus:ring-blue-500 print:w-5 print:h-5" ${mat.isChecked ? 'checked' : ''} onchange="toggleMaterialCheck('${mat.id}', ${!!mat.isChecked})">
+                            <span class="${mat.isChecked ? 'text-slate-500' : ''}">${mat.description}</span>
+                        </label>
+                    </td>
+                    <td class="p-4"><span class="px-2 py-1 bg-slate-100 rounded text-xs text-slate-600 font-medium">${mat.category || 'Geral'}</span></td>
+                    <td class="p-4 text-center text-slate-600">${mat.totalStock} ${mat.unit || ''}</td>
+                    <td class="p-4 text-center font-bold text-green-600 bg-green-50/50">${mat.stock}</td>
+                    <td class="p-4 text-center font-bold text-red-500">${mat.damagedStock || 0}</td>
+                    <td class="p-4 text-center text-xs text-slate-600 font-medium max-w-[150px] truncate" title="${mat.inUseByArr.join(', ')}">${usersStr}</td>
+                    <td class="p-4 text-right space-x-2">
+                        <button onclick="openMaterialModal('${mat.id}')" class="text-slate-500 hover:text-slate-800 text-sm p-1"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteMaterial('${mat.id}')" class="text-red-400 hover:text-red-700 text-sm p-1 ml-1" title="Excluir Material"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `}).join('') || `<tr><td colSpan="8" class="p-8 text-center text-slate-500">Nenhum material encontrado.</td></tr>`;
+        };
+
+        window.openMaterialModal = (id = null) => {
+            const mat = id ? appState.materials.find(m => m.id === id) : { description:'', category:'', type:'quantity', totalStock:1, unit:'un', code:'', assetNumber:'', value:'' };
+            document.getElementById('mat-modal-title').innerText = id ? 'Editar Material' : 'Novo Material';
+            document.getElementById('mat-id').value = id || '';
+            ['desc','cat','type','qty','unit','code','asset','value'].forEach(k => document.getElementById(`mat-${k}`).value = mat[{desc:'description', cat:'category', type:'type', qty:'totalStock', unit:'unit', code:'code', asset:'assetNumber', value:'value'}[k]] || '');
+            
+            const ab = document.getElementById('mat-assign-box');
+            if(id) { ab.style.display = 'none'; } 
+            else { 
+                ab.style.display = 'block'; 
+                document.getElementById('mat-assign-search').value = ''; document.getElementById('mat-assign-emp-id').value = '';
+                document.getElementById('mat-assign-confirm').classList.add('hidden');
+                try {
+                    const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                    document.getElementById('mat-assign-date').value = now.toISOString().slice(0,16);
+                } catch(e){}
+            }
+            document.getElementById('modal-material').classList.add('active');
+        };
+
+        window.handleAssignSearch = () => {
+            const term = document.getElementById('mat-assign-search').value.toLowerCase(), dd = document.getElementById('mat-assign-dropdown');
+            if(!term) return dd.classList.add('hidden');
+            dd.innerHTML = appState.employees.filter(e => e.status==='active' && e.name.toLowerCase().includes(term)).map(e => `
+                <li class="px-3 py-2 text-sm hover:bg-blue-100 cursor-pointer border-b" onmousedown="selectAssignEmp('${e.id}', '${e.name}')">${e.name}</li>
+            `).join('') || `<li class="px-3 py-2 text-sm text-slate-500">Nenhum encontrado</li>`;
+            dd.classList.remove('hidden');
+        };
+
+        window.selectAssignEmp = (id, name) => {
+            document.getElementById('mat-assign-emp-id').value = id; document.getElementById('mat-assign-search').value = name;
+            document.getElementById('mat-assign-dropdown').classList.add('hidden');
+            const conf = document.getElementById('mat-assign-confirm');
+            conf.innerHTML = `<i class="fa-solid fa-check"></i> Vinculado a: ${name}`; conf.classList.remove('hidden');
+        };
+
+        window.saveMaterial = async () => {
+            const id = document.getElementById('mat-id').value;
+            const data = { description: document.getElementById('mat-desc').value, category: document.getElementById('mat-cat').value, type: document.getElementById('mat-type').value, totalStock: parseInt(document.getElementById('mat-qty').value), unit: document.getElementById('mat-unit').value, code: document.getElementById('mat-code').value, assetNumber: document.getElementById('mat-asset').value.trim(), value: parseFloat(document.getElementById('mat-value').value) || 0 };
+            if(!data.description || !data.totalStock) return showToast('Preencha descrição e quantidade', 'error');
+
+            if (data.assetNumber) {
+                const duplicate = appState.materials.find(m => m.assetNumber && m.assetNumber.toLowerCase() === data.assetNumber.toLowerCase() && m.id !== id);
+                if (duplicate) return showToast(`Patrimônio já em uso no item: ${duplicate.description}`, 'error');
+            }
+
+            const dbPath = `artifacts/cautela-materiais/public/data`;
+            try {
+                if (id) {
+                    const old = appState.materials.find(m => m.id === id);
+                    await updateDoc(doc(db, `${dbPath}/materials`, id), { ...data, stock: old.stock + (data.totalStock - old.totalStock) });
+                    
+                    // --- ATUALIZAÇÃO REVERSA NAS FICHAS ---
+                    // Vasculha todas as cautelas existentes procurando por este material para atualizar o nome/patrimônio lá também
+                    const checkoutsToUpdate = appState.checkouts.filter(c => c.items.some(i => i.materialId === id));
+                    for (const c of checkoutsToUpdate) {
+                        let hasChanges = false;
+                        const updatedItems = c.items.map(i => {
+                            if (i.materialId === id) {
+                                hasChanges = true;
+                                return { 
+                                    ...i, 
+                                    description: data.description, 
+                                    type: data.type, 
+                                    codeOrAsset: data.type === 'asset' ? (data.assetNumber || data.code || '-') : data.code,
+                                    value: data.value
+                                };
+                            }
+                            return i;
+                        });
+                        
+                        if (hasChanges) {
+                            await updateDoc(doc(db, `${dbPath}/checkouts`, c.id), { items: updatedItems });
+                        }
+                    }
+                    // --------------------------------------
+                    
+                } else {
+                    const assignEmpId = document.getElementById('mat-assign-emp-id').value;
+                    const docRef = await addDoc(collection(db, `${dbPath}/materials`), { ...data, stock: assignEmpId ? 0 : data.totalStock, damagedStock: 0 });
+                    if (assignEmpId) {
+                        const emp = appState.employees.find(e => e.id === assignEmpId);
+                        const rawDate = document.getElementById('mat-assign-date').value;
+                        await addDoc(collection(db, `${dbPath}/checkouts`), {
+                            employeeId: emp.id, employeeName: emp.name, employeeDetails: `${emp.branch||''} - ${emp.department||''}`,
+                            date: rawDate ? new Date(rawDate).toISOString() : new Date().toISOString(), expectedReturnDate: null, purpose: 'Atribuição Direta', status: 'active',
+                            items: [{ materialId: docRef.id, description: data.description, type: data.type, codeOrAsset: data.type==='asset'?(data.assetNumber||data.code||'-'):data.code, qty: data.totalStock, returnedQty: 0, damagedQty: 0, transferredQty: 0, value: data.value }]
+                        });
+                    }
+                }
+                closeModal('modal-material'); showToast('Material salvo!');
+            } catch(e) { console.error(e); showToast('Erro', 'error'); }
+        };
+
+        window.deleteMaterial = async (id) => {
+            customConfirm('Tem certeza que deseja EXCLUIR este material permanentemente? Ele sumirá do estoque.', async () => {
+                try { 
+                    await deleteDoc(doc(db, `artifacts/cautela-materiais/public/data/materials`, id)); 
+                    showToast('Material excluído!', 'success'); 
+                } catch(e) { 
+                    console.error("Erro ao excluir:", e);
+                    showToast('Erro ao excluir', 'error'); 
+                }
+            });
+        };
+
+        window.toggleMaterialCheck = async (id, currentState) => {
+            const dbPath = `artifacts/cautela-materiais/public/data`;
+            try {
+                await updateDoc(doc(db, `${dbPath}/materials`, id), { isChecked: !currentState });
+            } catch(e) {
+                console.error("Erro ao marcar/desmarcar material:", e);
+                showToast('Erro ao atualizar conferência', 'error');
+            }
+        };
+
+        // --- CAUTELA (CHECKOUT) ---
+        window.renderCheckoutSetup = () => {
+            document.getElementById('co-employee').innerHTML = `<option value="">Selecione...</option>` + appState.employees.filter(e => e.status==='active').map(e => `<option value="${e.id}">${e.name} (${e.department||''})</option>`).join('');
+            document.getElementById('co-material').innerHTML = `<option value="">Selecione...</option>` + appState.materials.filter(m => m.stock > 0).map(m => `<option value="${m.id}">${m.description} (Disp: ${m.stock})</option>`).join('');
+            renderCart();
+        };
+
+        window.toggleTurboMode = () => {
+            appState.turboMode = document.getElementById('turbo-mode').checked;
+            document.getElementById('turbo-alert').style.display = appState.turboMode ? 'block' : 'none';
+            document.getElementById('checkout-btn-text').innerText = appState.turboMode ? 'Salvar (Modo Turbo)' : 'Confirmar e Gerar Termo';
+        };
+
+        window.addToCart = () => {
+            const matId = document.getElementById('co-material').value, qty = parseInt(document.getElementById('co-qty').value);
+            if(!matId || qty < 1) return;
+            const mat = appState.materials.find(m => m.id === matId);
+            if(qty > mat.stock) return showToast('Estoque insuficiente', 'error');
+            if(appState.cart.find(c => c.id === matId)) return showToast('Já adicionado', 'error');
+            appState.cart.push({ ...mat, checkoutQty: qty });
+            document.getElementById('co-material').value = ''; document.getElementById('co-qty').value = 1; renderCart();
+        };
+
+        window.removeFromCart = (id) => { appState.cart = appState.cart.filter(c => c.id !== id); renderCart(); };
+
+        function renderCart() {
+            document.getElementById('cart-count').innerText = appState.cart.length;
+            document.getElementById('cart-items').innerHTML = appState.cart.map(item => `
+                <div class="flex justify-between items-center bg-white p-3 border rounded mb-2 shadow-sm">
+                    <div><p class="font-medium text-slate-800">${item.description}</p></div>
+                    <div class="flex items-center gap-4">
+                        <span class="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">${item.checkoutQty} ${item.unit||''}</span>
+                        <button type="button" onclick="removeFromCart('${item.id}')" class="text-red-500 hover:bg-red-50 p-1 rounded transition"><i class="fa-solid fa-times"></i></button>
+                    </div>
+                </div>
+            `).join('') || `<p class="text-slate-400 text-center text-sm mt-8">Nenhum adicionado.</p>`;
+        }
+
+        window.confirmCheckout = async () => {
+            const empId = document.getElementById('co-employee').value, rawDate = document.getElementById('co-date').value;
+            if(!empId) return showToast('Selecione colaborador', 'error');
+            if(appState.cart.length === 0) return showToast('Carrinho vazio', 'error');
+            if(!rawDate) return showToast('Preencha a Data da Retirada', 'error');
+
+            const emp = appState.employees.find(e => e.id === empId), isIndet = document.getElementById('co-indeterminado').checked, retDate = document.getElementById('co-return-date').value;
+            const checkoutData = {
+                employeeId: emp.id, employeeName: emp.name, employeeDetails: `${emp.branch||''} - ${emp.department||''}`,
+                date: new Date(rawDate).toISOString(), expectedReturnDate: isIndet ? null : (retDate ? new Date(retDate).toISOString() : null),
+                physicalTerm: document.getElementById('co-term').value, purpose: document.getElementById('co-purpose').value, status: 'active',
+                items: appState.cart.map(i => ({ materialId: i.id, description: i.description, type: i.type, codeOrAsset: i.type === 'asset' ? (i.assetNumber||i.code||'-') : i.code, qty: i.checkoutQty, returnedQty: 0, damagedQty: 0, transferredQty: 0, value: i.value || 0 }))
+            };
+
+            const dbPath = `artifacts/cautela-materiais/public/data`;
+            try {
+                const docRef = await addDoc(collection(db, `${dbPath}/checkouts`), checkoutData);
+                for (const item of appState.cart) await updateDoc(doc(db, `${dbPath}/materials`, item.id), { stock: item.stock - item.checkoutQty });
+                showToast('Cautela registrada!');
+                
+                if (appState.turboMode) {
+                    appState.cart = []; renderCart(); document.getElementById('co-employee').value = ''; document.getElementById('co-term').value = ''; document.getElementById('co-purpose').value = '';
+                } else {
+                    renderPrintView({ id: docRef.id, ...checkoutData });
+                }
+            } catch(e) { showToast('Erro', 'error'); }
+        };
+
+        function renderPrintView(data) {
+            document.getElementById('main-content').classList.add('hidden');
+            const pv = document.getElementById('print-view'); pv.classList.remove('hidden');
+            const retFormat = data.expectedReturnDate ? new Date(data.expectedReturnDate).toLocaleDateString('pt-BR') : 'Indeterminado';
+            
+            pv.innerHTML = `
+                <div class="bg-white max-w-4xl mx-auto print:shadow-none print:border-none print:p-0 p-8 border shadow-lg rounded-xl mb-10 print:m-0 print:mx-auto print:w-full">
+                    <div class="flex justify-between items-center mb-8 no-print border-b pb-4">
+                        <h2 class="text-xl font-bold text-green-600"><i class="fa-solid fa-check"></i> Cautela Registrada!</h2>
+                        <div class="flex gap-2"><button onclick="window.print()" class="bg-slate-800 text-white px-4 py-2 rounded shadow"><i class="fa-solid fa-print"></i> Imprimir</button><button onclick="switchView('checkout')" class="bg-blue-100 text-blue-700 px-4 py-2 rounded font-bold">Nova Cautela</button></div>
+                    </div>
+                    
+                    <!-- LOGO IMPRESSÃO -->
+                    <div class="hidden print:flex flex-col items-center justify-center mb-8 w-full mt-2">
+                        <div class="flex items-center justify-center gap-6 w-full">
+                            <span class="text-5xl font-light text-[#555555] tracking-[0.3em] uppercase">Grupo</span><div class="h-16 w-1 bg-[#e6192b]"></div><span class="text-6xl font-bold text-[#e6192b] tracking-tight whitespace-nowrap">Libraga Brandão</span>
+                        </div>
+                        <div class="flex items-center justify-center gap-4 text-[11px] font-bold mt-4 tracking-wider uppercase">
+                            <span class="text-[#e6192b]">Rede Vivo</span> &bull; <span class="text-[#008a47]">Rancho Atacadista</span> &bull; <span class="text-[#e30613]">Boa Vista</span> &bull; <span class="text-[#009b3a]">LB Energia</span> &bull; <span class="text-[#555555]">CDRV</span> &bull; <span class="text-[#8a191d]">São Luiz</span>
+                        </div>
+                    </div>
+
+                    <div class="text-center border-b pb-6 mb-6">
+                        <h1 class="text-2xl font-bold uppercase tracking-wider mb-2 text-slate-800">Termo de Responsabilidade e Cautela</h1>
+                        <p class="text-slate-500 font-mono text-sm">Doc: ${data.id.slice(-6).toUpperCase()}</p>
+                        ${data.physicalTerm ? `<p class="text-sm font-mono text-slate-500">Ref Físico: ${data.physicalTerm}</p>` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-8 bg-slate-50 p-4 rounded border print:bg-transparent print:border-none print:p-0">
+                        <div class="col-span-2 md:col-span-1"><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Colaborador</p><p class="font-bold text-lg text-slate-800 uppercase">${data.employeeName}</p></div>
+                        <div class="col-span-2 md:col-span-1"><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Setor / Filial</p><p class="font-medium text-slate-700">${data.employeeDetails}</p></div>
+                        <div class="bg-white print:bg-transparent border print:border-none rounded p-2"><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Data da Retirada</p><p class="font-bold text-xl text-slate-800">${formatDate(data.date)}</p></div>
+                        <div class="bg-white print:bg-transparent border print:border-none rounded p-2"><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Prev. Devolução</p><p class="font-bold text-xl text-slate-800">${retFormat}</p></div>
+                    </div>
+                    <table class="w-full text-sm text-left border border-slate-300 mb-8">
+                        <thead class="bg-slate-100 text-slate-600 border-b border-slate-300">
+                            <tr>
+                                <th class="p-3 uppercase text-[11px] tracking-wider">Descrição do Material</th>
+                                <th class="p-3 text-center uppercase text-[11px] tracking-wider">Valor (R$)</th>
+                                <th class="p-3 text-center uppercase text-[11px] tracking-wider">Qtd</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.items.map(i => `<tr class="border-b border-slate-200"><td class="p-3 font-medium text-slate-800 print:text-[14px] print:font-bold">${i.description} <span class="text-slate-400 font-mono text-xs ml-2 print:font-normal print:text-[11px]">${i.codeOrAsset!=='-'?`(${i.codeOrAsset})`:''}</span></td><td class="p-3 text-center font-mono text-slate-600 text-xs">${i.value ? `R$ ${parseFloat(i.value).toFixed(2).replace('.',',')}` : '-'}</td><td class="p-3 text-center font-bold text-lg print:text-[14px]">${i.qty}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                    <div class="text-sm text-slate-600 text-justify mb-16 border-t border-dashed pt-8">
+                        <p>Declaro que recebi os materiais relacionados neste termo, comprometendo-me a zelar pela sua conservação. Responsabilizo-me pela guarda dos itens e autorizo o desconto em folha de pagamento do valor correspondente em caso de perda ou dano decorrente de mau uso.</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-8 text-center mt-12 print-avoid-break">
+                        <div><div class="border-t border-slate-800 pt-2 mx-8 font-bold uppercase">${data.employeeName}</div></div>
+                        <div><div class="border-t border-slate-800 pt-2 mx-8 font-bold uppercase">Almoxarifado</div></div>
+                    </div>
+                </div>
+            `;
+            appState.cart = []; document.getElementById('co-employee').value = ''; document.getElementById('co-term').value = ''; document.getElementById('co-purpose').value = '';
+        }
+
+        // --- BAIXAS E TRANSFERENCIAS ---
+        window.renderReturns = () => {
+            const term = document.getElementById('search-returns').value.toLowerCase();
+            let activeList = [];
+            appState.checkouts.forEach(c => c.items.forEach((item, index) => {
+                // Ignora itens de materiais que já foram excluídos do sistema
+                if (!appState.materials.some(m => m.id === item.materialId)) return;
+
+                const activeQty = item.qty - (item.returnedQty||0) - (item.damagedQty||0) - (item.transferredQty||0);
+                if (activeQty > 0) activeList.push({ ...item, checkout: c, itemIndex: index, activeQty });
+            }));
+            const filtered = activeList.filter(i => i.checkout.employeeName.toLowerCase().includes(term) || i.description.toLowerCase().includes(term) || (i.codeOrAsset && i.codeOrAsset.toLowerCase().includes(term)));
+
+            document.getElementById('returns-tbody').innerHTML = filtered.map(row => `
+                <tr class="border-b hover:bg-slate-50 transition-colors">
+                    <td class="p-4 font-medium text-slate-800">${row.checkout.employeeName}</td>
+                    <td class="p-4 text-slate-700">${row.description} <br><span class="text-xs font-mono text-slate-400">${row.codeOrAsset||'-'}</span></td>
+                    <td class="p-4 text-center font-bold text-amber-600 bg-amber-50/50">${row.activeQty}</td>
+                    <td class="p-4 text-slate-600 font-medium">${formatDate(row.checkout.date)}</td>
+                    <td class="p-4 text-right space-x-2">
+                        <button onclick="openTransfer('${row.checkout.employeeId}', '${row.checkout.id}', '${row.materialId}', ${row.activeQty})" class="bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 text-xs font-bold shadow-sm whitespace-nowrap"><i class="fa-solid fa-right-left"></i> Transferir</button>
+                        <button onclick="openReturnModal('${row.checkout.id}', ${row.itemIndex}, ${row.activeQty}, '${row.materialId}')" class="bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 text-xs font-bold shadow-sm whitespace-nowrap"><i class="fa-solid fa-check"></i> Baixar</button>
+                        <button onclick="deleteCheckoutItem('${row.checkout.id}', ${row.itemIndex}, ${row.activeQty}, '${row.materialId}')" class="bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 text-xs font-bold shadow-sm" title="Excluir Lançamento (Cancelar)"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('') || `<tr><td colSpan="5" class="p-8 text-center text-slate-500">Nenhum item pendente.</td></tr>`;
+        };
+
+        window.openReturnModal = (cId, idx, maxQty, matId) => {
+            try {
+                const c = appState.checkouts.find(x => x.id === cId);
+                if (!c || !c.items || !c.items[idx]) {
+                    showToast('Erro: Cautela ou item não encontrado no sistema.', 'error');
+                    return;
+                }
+                
+                document.getElementById('ret-info').innerHTML = `<p>Colab: <strong class="text-slate-800">${c.employeeName}</strong></p><p class="mt-1">Item: <strong class="text-slate-800">${c.items[idx].description}</strong></p>`;
+                document.getElementById('ret-checkout-id').value = cId; 
+                document.getElementById('ret-item-index').value = idx; 
+                document.getElementById('ret-mat-id').value = matId || '';
+                
+                const rq = document.getElementById('ret-qty'); 
+                rq.value = maxQty; 
+                rq.max = maxQty;
+                
+                const goodRadio = document.querySelector('input[name="ret_condition"][value="good"]');
+                if (goodRadio) goodRadio.checked = true;
+                
+                // --- NOVO: Preencher data atual por padrão ---
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                document.getElementById('ret-date').value = now.toISOString().slice(0, 16);
+                
+                updateReturnUI();
+                document.getElementById('modal-return').classList.add('active');
+            } catch (err) {
+                console.error("Erro ao abrir janela de devolução:", err);
+                showToast("Falha interna ao tentar abrir a devolução", "error");
+            }
+        };
+
+        window.updateReturnUI = () => {
+            try {
+                const checkedRadio = document.querySelector('input[name="ret_condition"]:checked');
+                const isGood = checkedRadio ? checkedRadio.value === 'good' : true;
+                
+                const lg = document.getElementById('lbl-ret-good');
+                const lb = document.getElementById('lbl-ret-bad');
+                
+                if (lg) {
+                    lg.className = `border p-3 rounded-lg flex items-center gap-2 cursor-pointer transition-all ${isGood ? 'bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm' : 'bg-white hover:bg-slate-50'}`;
+                    const lgInd = lg.querySelector('.indicator');
+                    if (lgInd) {
+                        lgInd.className = `w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${isGood ? 'border-green-600 bg-green-600' : 'border-slate-300'}`;
+                        lgInd.innerHTML = isGood ? '<div class="w-2 h-2 bg-white rounded-full"></div>' : '';
+                    }
+                }
+                
+                if (lb) {
+                    lb.className = `border p-3 rounded-lg flex items-center gap-2 cursor-pointer transition-all ${!isGood ? 'bg-red-50 border-red-500 ring-1 ring-red-500 shadow-sm' : 'bg-white hover:bg-slate-50'}`;
+                    const lbInd = lb.querySelector('.indicator');
+                    if (lbInd) {
+                        lbInd.className = `w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${!isGood ? 'border-red-600 bg-red-600' : 'border-slate-300'}`;
+                        lbInd.innerHTML = !isGood ? '<div class="w-2 h-2 bg-white rounded-full"></div>' : '';
+                    }
+                }
+            } catch (err) {
+                console.warn("UpdateUI error:", err);
+            }
+        };
+
+        window.processReturn = async () => {
+            try {
+                const cId = document.getElementById('ret-checkout-id').value;
+                const idxStr = document.getElementById('ret-item-index').value;
+                const idx = parseInt(idxStr);
+                const mId = document.getElementById('ret-mat-id').value;
+                
+                const qtyInput = document.getElementById('ret-qty').value;
+                const qty = parseInt(qtyInput);
+                
+                const checkedRadio = document.querySelector('input[name="ret_condition"]:checked');
+                const cond = checkedRadio ? checkedRadio.value : 'good';
+
+                if (isNaN(qty) || qty <= 0) {
+                    return showToast('Por favor, informe uma quantidade válida', 'error');
+                }
+
+                const c = appState.checkouts.find(x => x.id === cId);
+                if (!c || !c.items || !c.items[idx]) {
+                    return showToast('Não foi possível identificar o item da cautela', 'error');
+                }
+
+                const dbPath = `artifacts/cautela-materiais/public/data`;
+                
+                // Validação para não devolver mais do que foi pego
+                const activeQty = c.items[idx].qty - (c.items[idx].returnedQty||0) - (c.items[idx].damagedQty||0) - (c.items[idx].transferredQty||0);
+                if (qty > activeQty) {
+                    return showToast(`Quantidade excede o limite disponível (${activeQty})`, 'error');
+                }
+
+                // Clonar os itens de forma segura e atualizar contagem
+                const ni = [...c.items];
+                ni[idx] = { ...ni[idx] }; 
+                
+                if (cond === 'good') {
+                    ni[idx].returnedQty = (ni[idx].returnedQty || 0) + qty; 
+                } else {
+                    ni[idx].damagedQty = (ni[idx].damagedQty || 0) + qty;
+                }
+                
+                const dateInput = document.getElementById('ret-date').value;
+                if (dateInput) {
+                    const customDate = new Date(dateInput);
+                    ni[idx].lastReturnDate = customDate.toISOString();
+                } else {
+                    const now = new Date(); 
+                    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                    ni[idx].lastReturnDate = now.toISOString();
+                }
+                
+                // Grava Cautela Atualizada
+                await updateDoc(doc(db, `${dbPath}/checkouts`, cId), { items: ni });
+                
+                // Grava Estoque de Materiais (somente se material ainda existir no sistema)
+                const m = appState.materials.find(x => x.id === mId);
+                if (m) {
+                    if (cond === 'good') {
+                        await updateDoc(doc(db, `${dbPath}/materials`, mId), { stock: (m.stock || 0) + qty });
+                    } else {
+                        await updateDoc(doc(db, `${dbPath}/materials`, mId), { damagedStock: (m.damagedStock || 0) + qty });
+                    }
+                }
+                
+                closeModal('modal-return'); 
+                showToast('Baixa registrada com sucesso!');
+            } catch (e) { 
+                console.error("Erro fatal no processamento da devolução:", e);
+                showToast('Falha ao processar devolução. Verifique sua rede.', 'error'); 
+            }
+        };
+
+        window.openTransfer = (fromEmpId, checkoutId, materialId, qty) => {
+            const checkout = appState.checkouts.find(c => c.id === checkoutId), item = checkout.items.find(i => i.materialId === materialId), fromEmp = appState.employees.find(e => e.id === fromEmpId);
+            document.getElementById('trans-info').innerHTML = `<p>Material: <strong class="text-slate-800">${item.description}</strong></p><p class="mt-1">Qtd Atual com ${fromEmp.name}: <strong class="text-blue-700">${qty}</strong></p>`;
+            document.getElementById('trans-checkout-id').value = checkoutId; document.getElementById('trans-mat-id').value = materialId; document.getElementById('trans-qty').value = qty;
+            document.getElementById('trans-target-emp').innerHTML = `<option value="">Selecione o destino...</option>` + appState.employees.filter(e => e.status==='active' && e.id !== fromEmpId).map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+            document.getElementById('modal-transfer').classList.add('active');
+        };
+
+        window.processTransfer = async () => {
+            const targetId = document.getElementById('trans-target-emp').value, cId = document.getElementById('trans-checkout-id').value, mId = document.getElementById('trans-mat-id').value, qty = parseInt(document.getElementById('trans-qty').value);
+            if(!targetId) return showToast('Selecione o destino', 'error');
+            const targetEmp = appState.employees.find(e => e.id === targetId), c = appState.checkouts.find(x => x.id === cId), idx = c.items.findIndex(i => i.materialId === mId), dbPath = `artifacts/cautela-materiais/public/data`;
+            try {
+                const ni = [...c.items]; ni[idx].transferredQty = (ni[idx].transferredQty||0) + qty;
+                await updateDoc(doc(db, `${dbPath}/checkouts`, cId), { items: ni });
+                const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                await addDoc(collection(db, `${dbPath}/checkouts`), {
+                    employeeId: targetEmp.id, employeeName: targetEmp.name, employeeDetails: `${targetEmp.branch||''} - ${targetEmp.department||''}`,
+                    date: now.toISOString(), expectedReturnDate: null, purpose: `Transferência`, status: 'active',
+                    items: [{ ...c.items[idx], qty, returnedQty: 0, damagedQty: 0, transferredQty: 0 }]
+                });
+                closeModal('modal-transfer'); closeModal('modal-ficha'); showToast('Transferido com sucesso!');
+            } catch(e) { console.error(e); showToast('Erro', 'error'); }
+        };
+
+        window.deleteCheckoutItem = async (cId, idx, qty, matId) => {
+            customConfirm('CUIDADO: Deseja EXCLUIR/CANCELAR este lançamento? A quantidade voltará ao estoque imediatamente (isso apagará o histórico deste item).', async () => {
+                const c = appState.checkouts.find(x => x.id === cId), m = appState.materials.find(x => x.id === matId), dbPath = `artifacts/cautela-materiais/public/data`;
+                try {
+                    const ni = [...c.items]; 
+                    ni[idx].qty -= qty;
+                    
+                    if(ni[idx].qty <= 0) {
+                        ni.splice(idx, 1);
+                    }
+                    
+                    if(ni.length === 0) {
+                        await deleteDoc(doc(db, `${dbPath}/checkouts`, cId)); 
+                    } else {
+                        await updateDoc(doc(db, `${dbPath}/checkouts`, cId), { items: ni });
+                    }
+                    
+                    if(m) {
+                        await updateDoc(doc(db, `${dbPath}/materials`, matId), { stock: m.stock + qty });
+                    }
+                    
+                    showToast('Lançamento cancelado!');
+                } catch(e) { 
+                    console.error("Erro ao cancelar:", e);
+                    showToast('Erro ao cancelar', 'error'); 
+                }
+            });
+        };
+
+        // --- PATRIMONIOS ---
+        window.renderAssets = () => {
+            const term = document.getElementById('search-assets').value.toLowerCase();
+            document.getElementById('assets-tbody').innerHTML = appState.materials.filter(m => m.type === 'asset' && (m.description.toLowerCase().includes(term) || (m.assetNumber && m.assetNumber.toLowerCase().includes(term)))).map(asset => {
+                let loc = 'Estoque', emp = '-', isDam = (asset.damagedStock > 0); if(isDam) loc = 'Manutenção/Danificado';
+                for (let i = appState.checkouts.length - 1; i >= 0; i--) {
+                    const it = appState.checkouts[i].items.find(x => x.materialId === asset.id);
+                    if (it && (it.qty - (it.returnedQty||0) - (it.damagedQty||0) - (it.transferredQty||0)) > 0) { loc = 'Em Uso'; emp = appState.checkouts[i].employeeName; break; }
+                }
+                return `<tr class="border-b hover:bg-slate-50"><td class="p-4 font-mono font-bold text-slate-700">${asset.assetNumber||'-'}</td><td class="p-4 font-medium text-slate-800">${asset.description}</td><td class="p-4 text-center"><span class="px-2 py-1 rounded-full text-xs font-medium ${isDam?'bg-red-100 text-red-700':'bg-green-100 text-green-700'}">${isDam?'Danificado':'Bom'}</span></td><td class="p-4"><div class="font-medium text-slate-800">${loc}</div>${emp!=='-'?`<div class="text-xs text-slate-500 mt-1">Com: ${emp}</div>`:''}</td></tr>`;
+            }).join('') || `<tr><td colspan="4" class="p-8 text-center text-slate-500">Nenhum patrimônio.</td></tr>`;
+        };
+
+        // --- EXCEL ---
+        window.exportExcel = (type) => {
+            let data = [], filename = '';
+            if (type === 'employees') { data = appState.employees.map(e => ({ Nome: e.name, Filial: e.branch||'', Setor: e.department||'', Cargo: e.role||'', Status: e.status==='active'?'Ativo':'Inativo' })); filename = 'Colaboradores.xlsx'; } 
+            else if (type === 'materials') { data = appState.materials.map(m => ({ Descricao: m.description, Categoria: m.category||'', Tipo: m.type==='asset'?'Patrimônio':'Quantidade', Codigo: m.code||'', Patrimonio: m.assetNumber||'', QtdTotal: m.totalStock||0, QtdDisponivel: m.stock||0, QtdDanificada: m.damagedStock||0, Unidade: m.unit||'un' })); filename = 'Materiais.xlsx'; }
+            if (data.length === 0) return showToast('Sem dados.', 'error');
+            const ws = XLSX.utils.json_to_sheet(data), wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Dados"); XLSX.writeFile(wb, filename);
+        };
+        window.downloadTemplate = (type) => {
+            const data = type === 'employees' ? [{ Nome: 'João da Silva', Filial: 'Matriz', Setor: 'Manutenção', Cargo: 'Técnico', Status: 'Ativo' }] : [{ Descricao: 'Furadeira Bosch', Categoria: 'Ferramentas Elétricas', Tipo: 'Patrimônio', Codigo: 'F-001', Patrimonio: 'PAT-9988', QtdTotal: 1, Unidade: 'un', Colaborador_Responsavel: 'João da Silva' }, { Descricao: 'Alicate Universal', Categoria: 'Ferramentas Manuais', Tipo: 'Quantidade', Codigo: 'A-002', Patrimonio: '', QtdTotal: 15, Unidade: 'un', Colaborador_Responsavel: '' }];
+            const ws = XLSX.utils.json_to_sheet(data), wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Modelo"); XLSX.writeFile(wb, `Modelo_${type}.xlsx`);
+        };
+        window.processExcelImport = () => {
+            const fi = document.getElementById('import-file'), type = document.getElementById('import-type').value;
+            if (!fi.files.length) return showToast('Selecione o arquivo.', 'error');
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }), json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                    if (json.length === 0) return showToast('Vazia.', 'error');
+                    const loader = document.getElementById('loading-screen'); loader.querySelector('p').innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Importando...`; loader.style.display = 'flex';
+                    const dbPath = `artifacts/cautela-materiais/public/data`, batch = writeBatch(db); let count = 0;
+                    for (const row of json) {
+                        if (type === 'employees' && row.Nome) {
+                            batch.set(doc(collection(db, `${dbPath}/employees`)), { name: String(row.Nome), branch: String(row.Filial||''), department: String(row.Setor||''), role: String(row.Cargo||''), status: String(row.Status||'').toLowerCase()==='inativo'?'inactive':'active' }); count++;
+                        } else if (type === 'materials' && row.Descricao) {
+                            const qtd = parseInt(row.QtdTotal)||1, tv = (String(row.Tipo||'').toLowerCase().includes('patrim'))?'asset':'quantity', empRaw = String(row.Colaborador_Responsavel||'').trim();
+                            const emp = empRaw ? appState.employees.find(e => e.name.toLowerCase() === empRaw.toLowerCase() && e.status === 'active') : null;
+                            const newRef = doc(collection(db, `${dbPath}/materials`));
+                            batch.set(newRef, { description: String(row.Descricao), category: String(row.Categoria||''), type: tv, code: String(row.Codigo||''), assetNumber: String(row.Patrimonio||''), totalStock: qtd, stock: emp ? 0 : qtd, damagedStock: 0, unit: String(row.Unidade||'un') });
+                            if (emp) {
+                                const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                                batch.set(doc(collection(db, `${dbPath}/checkouts`)), { employeeId: emp.id, employeeName: emp.name, employeeDetails: `${emp.branch||''} - ${emp.department||''}`, date: now.toISOString(), expectedReturnDate: null, purpose: 'Importação', status: 'active', items: [{ materialId: newRef.id, description: String(row.Descricao), type: tv, codeOrAsset: tv==='asset'?(String(row.Patrimonio||'')||String(row.Codigo||'')||'-'):String(row.Codigo||''), qty: qtd, returnedQty: 0, damagedQty: 0, transferredQty: 0 }] });
+                            }
+                            count++;
+                        }
+                    }
+                    if (count > 0) { await batch.commit(); showToast(`${count} importados!`); } else showToast('Sem dados.', 'error');
+                    fi.value = ''; loader.style.display = 'none';
+                } catch (err) { document.getElementById('loading-screen').style.display = 'none'; showToast('Erro no arquivo.', 'error'); }
+            };
+            reader.readAsArrayBuffer(fi.files[0]);
+        };
+
+        // --- UTILS ---
+        window.closeModal = (id) => document.getElementById(id).classList.remove('active');
+        
+        window.customConfirm = (msg, onConfirm) => {
+            document.getElementById('confirm-message').innerText = msg;
+            document.getElementById('confirm-btn').onclick = () => { closeModal('modal-confirm'); onConfirm(); };
+            document.getElementById('modal-confirm').classList.add('active');
+        };
+
+        window.showToast = (msg, type = 'success') => {
+            const t = document.getElementById('toast'); document.getElementById('toast-message').innerText = msg;
+            t.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 transform transition-all duration-300 z-[100] no-print ${type === 'error' ? 'bg-red-500' : 'bg-green-600'}`;
+            document.getElementById('toast-icon').className = type === 'error' ? 'fa-solid fa-circle-exclamation' : 'fa-solid fa-check';
+            t.classList.remove('translate-y-20', 'opacity-0'); setTimeout(() => t.classList.add('translate-y-20', 'opacity-0'), 3000);
+        };
+        function formatDate(ds) {
+            if(!ds) return '-'; const d = new Date(ds); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
